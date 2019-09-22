@@ -5,9 +5,7 @@ namespace Lab2
 {
     public class MD5
     {
-        /*
-         * Round shift values
-         */
+        // Round shift values
         static int[] s = new int[64] {
             7, 12, 17, 22,  7, 12, 17, 22,  7, 12, 17, 22,  7, 12, 17, 22,
             5,  9, 14, 20,  5,  9, 14, 20,  5,  9, 14, 20,  5,  9, 14, 20,
@@ -15,10 +13,8 @@ namespace Lab2
             6, 10, 15, 21,  6, 10, 15, 21,  6, 10, 15, 21,  6, 10, 15, 21
         };
 
-        /*
-         * Constant K Values
-         */
-        static uint[] K = new uint[64] {
+        // Constant K Values
+        static uint[] T = new uint[64] {
             0xd76aa478, 0xe8c7b756, 0x242070db, 0xc1bdceee,
             0xf57c0faf, 0x4787c62a, 0xa8304613, 0xfd469501,
             0x698098d8, 0x8b44f7af, 0xffff5bb1, 0x895cd7be,
@@ -37,67 +33,102 @@ namespace Lab2
             0xf7537e82, 0xbd3af235, 0x2ad7d2bb, 0xeb86d391
         };
 
+        private const int PADDING = 448;
+        private const int MESSAGE_SIZE = 512;
+        private const int BITS_IN_BYTE = 8;
+        private const int LENGTH_IN_BITS = 64;
+        private const int BLOCK_SIZE_IN_BITS = 512;
+
+        delegate uint Round(uint B, uint C, uint D);
+
+        private static uint F(uint B, uint C, uint D)
+        {
+            return (B & C) | (~B & D);
+        }
+
+        private static uint G(uint B, uint C, uint D)
+        {
+            return (B & D) | (C & ~D);
+        }
+
+        private static uint H(uint B, uint C, uint D)
+        {
+            return B ^ C ^ D;
+        }
+
+        private static uint I(uint B, uint C, uint D)
+        {
+            return C ^ (B | ~D);
+        }
+
         public static uint leftRotate(uint x, int c)
         {
             return (x << c) | (x >> (32 - c));
         }
 
-        // assumes whole bytes as input
-        public static string Calculate(string text)
+        private static byte[] ProcessInput(byte[] input)
         {
-            byte[] input = System.Text.Encoding.ASCII.GetBytes(text);
-
-            uint a0 = 0x67452301;   // A
-            uint b0 = 0xefcdab89;   // B
-            uint c0 = 0x98badcfe;   // C
-            uint d0 = 0x10325476;   // D
-
-            var addLength = (56 - ((input.Length + 1) % 64)) % 64; // calculate the new length with padding
-            var processedInput = new byte[input.Length + 1 + addLength + 8];
+            var addLength = (PADDING / BITS_IN_BYTE - ((input.Length + 1) % (MESSAGE_SIZE / BITS_IN_BYTE))) % (MESSAGE_SIZE / BITS_IN_BYTE); // calculate the new length with padding
+            var processedInput = new byte[input.Length + 1 + addLength + LENGTH_IN_BITS / BITS_IN_BYTE];
             Array.Copy(input, processedInput, input.Length);
             processedInput[input.Length] = 0x80; // add 1
 
             byte[] length = BitConverter.GetBytes(input.Length * 8); // bit converter returns little-endian
             Array.Copy(length, 0, processedInput, processedInput.Length - 8, 4); // add length in bits
 
-            for (int i = 0; i < processedInput.Length / 64; ++i)
+            return processedInput;
+        }
+
+        // assumes whole bytes as input
+        public static string Calculate(string text)
+        {
+            var processedInput = ProcessInput(System.Text.Encoding.ASCII.GetBytes(text));
+
+            uint a0 = 0x67452301;   // A
+            uint b0 = 0xefcdab89;   // B
+            uint c0 = 0x98badcfe;   // C
+            uint d0 = 0x10325476;   // D
+
+            for (int i = 0; i < processedInput.Length / (BLOCK_SIZE_IN_BITS / BITS_IN_BYTE); ++i)
             {
                 // copy the input to M
-                uint[] M = new uint[16];
+                uint[] X = new uint[16];
                 for (int j = 0; j < 16; ++j)
-                    M[j] = BitConverter.ToUInt32(processedInput, (i * 64) + (j * 4));
+                    X[j] = BitConverter.ToUInt32(processedInput, (i * 64) + (j * 4));
 
                 // initialize round variables
-                uint A = a0, B = b0, C = c0, D = d0, F = 0, g = 0;
+                uint A = a0, B = b0, C = c0, D = d0, g = 0;
+                Round f = F;
 
                 // primary loop
                 for (uint k = 0; k < 64; ++k)
                 {
+                    if (k == 0) f = F;
+                    else if (k == 16) f = G;
+                    else if (k == 32) f = H;
+                    else if (k == 48) f = I;
+
                     if (k <= 15)
                     {
-                        F = (B & C) | (~B & D);
                         g = k;
                     }
                     else if (k >= 16 && k <= 31)
                     {
-                        F = (D & B) | (~D & C);
-                        g = ((5 * k) + 1) % 16;
+                        g = (1 + (5 * k)) % 16;
                     }
                     else if (k >= 32 && k <= 47)
                     {
-                        F = B ^ C ^ D;
-                        g = ((3 * k) + 5) % 16;
+                        g = (5 + (3 * k)) % 16;
                     }
                     else if (k >= 48)
                     {
-                        F = C ^ (B | ~D);
                         g = (7 * k) % 16;
                     }
 
-                    var dtemp = D;
+                    uint btemp = B, dtemp = D;
+                    B = B + leftRotate((A + f(B, C, D) + T[k] + X[g]), s[k]);
                     D = C;
-                    C = B;
-                    B = B + leftRotate((A + F + K[k] + M[g]), s[k]);
+                    C = btemp;
                     A = dtemp;
                 }
 
